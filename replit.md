@@ -25,3 +25,16 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - `pnpm --filter @workspace/api-server run dev` — run API server locally
 
 See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+
+## WhatsApp Bot (Twilio)
+
+Built into `@workspace/api-server`. The Twilio integration in Replit was dismissed by the user; credentials are stored as plain secrets (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_NUMBER`) and consumed directly via `process.env`.
+
+**Routes:**
+- `POST /api/whatsapp/webhook` — Twilio inbound message webhook. Validates `X-Twilio-Signature` (skipped when `NODE_ENV=development`) and replies with TwiML.
+- `POST /api/whatsapp/send` — JSON `{ to, body }`; sends an outbound WhatsApp message via Twilio REST API.
+- `GET /api/whatsapp/status` — reports whether all three Twilio secrets are present.
+
+**Bot logic:** `src/lib/botReply.ts` (commands: `help`, `ping`, `time`, `joke`, `about`, `echo <text>`).
+
+**Twilio setup:** In the Twilio Console, set the WhatsApp sandbox / number's "When a message comes in" webhook to `https://<your-replit-domain>/api/whatsapp/webhook` (HTTP POST).
