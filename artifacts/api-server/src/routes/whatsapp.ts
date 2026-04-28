@@ -5,7 +5,11 @@ import {
   getTwilioClient,
   getTwilioWhatsAppNumber,
 } from "../lib/twilio";
-import { generateBotReply } from "../lib/botReply";
+import {
+  getConversationHistory,
+  handleIncomingMessage,
+  resetConversation,
+} from "../lib/claudeBot";
 
 const router: IRouter = Router();
 
@@ -15,7 +19,7 @@ function getPublicUrl(req: Request): string {
   return `${proto}://${host}${req.originalUrl.split("?")[0]}`;
 }
 
-router.post("/whatsapp/webhook", (req, res) => {
+router.post("/whatsapp/webhook", async (req, res) => {
   const signature = req.header("X-Twilio-Signature");
   const url = getPublicUrl(req);
   const params = (req.body ?? {}) as Record<string, string>;
@@ -47,12 +51,52 @@ router.post("/whatsapp/webhook", (req, res) => {
     "Incoming WhatsApp message",
   );
 
-  const replyText = generateBotReply({ from, body, profileName, numMedia });
+  try {
+    const replyText = await handleIncomingMessage({
+      phoneNumber: from,
+      profileName,
+      body,
+      numMedia,
+    });
 
-  const twiml = new twilio.twiml.MessagingResponse();
-  twiml.message(replyText);
+    const twiml = new twilio.twiml.MessagingResponse();
+    twiml.message(replyText);
 
-  res.type("text/xml").send(twiml.toString());
+    res.type("text/xml").send(twiml.toString());
+  } catch (err) {
+    req.log.error({ err }, "Failed to handle WhatsApp message");
+    const twiml = new twilio.twiml.MessagingResponse();
+    twiml.message(
+      "Désolé, une erreur s'est produite. Peux-tu réessayer dans un instant ?",
+    );
+    res.type("text/xml").send(twiml.toString());
+  }
+});
+
+router.get("/whatsapp/history/:phoneNumber", async (req, res) => {
+  const phoneNumber = req.params["phoneNumber"];
+  if (!phoneNumber) {
+    res.status(400).json({ error: "phoneNumber is required" });
+    return;
+  }
+  const formatted = phoneNumber.startsWith("whatsapp:")
+    ? phoneNumber
+    : `whatsapp:${phoneNumber}`;
+  const data = await getConversationHistory(formatted);
+  res.json(data);
+});
+
+router.delete("/whatsapp/history/:phoneNumber", async (req, res) => {
+  const phoneNumber = req.params["phoneNumber"];
+  if (!phoneNumber) {
+    res.status(400).json({ error: "phoneNumber is required" });
+    return;
+  }
+  const formatted = phoneNumber.startsWith("whatsapp:")
+    ? phoneNumber
+    : `whatsapp:${phoneNumber}`;
+  const cleared = await resetConversation(formatted);
+  res.json({ cleared });
 });
 
 router.post("/whatsapp/send", async (req, res) => {
