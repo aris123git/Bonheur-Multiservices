@@ -36,3 +36,13 @@ export function getTwilioAuthToken(): string {
   }
   return token;
 }
+
+export async function sendWhatsAppMessage(
+  toPhone: string,
+  body: string,
+): Promise<void> {
+  const client = getTwilioClient();
+  const from = getTwilioWhatsAppNumber();
+  const to = toPhone.startsWith("whatsapp:") ? toPhone : `whatsapp:${toPhone}`;
+  await client.messages.create({ from, to, body });
+}

@@ -1,6 +1,10 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db, whatsappTransactions } from "@workspace/db";
 import { desc, eq } from "drizzle-orm";
+import { sendWhatsAppMessage } from "../lib/twilio";
+
+const CONFIRM_MESSAGE =
+  "Votre demande a bien été prise en compte. L'argent sera disponible très bientôt. Merci de votre confiance 🙏";
 
 const router: IRouter = Router();
 
@@ -35,6 +39,20 @@ router.post(
 
     if (!updated) {
       res.status(404).json({ error: "Not found" });
+      return;
+    }
+
+    try {
+      await sendWhatsAppMessage(updated.clientPhone, CONFIRM_MESSAGE);
+    } catch (err) {
+      req.log.error(
+        { err, transactionId: updated.id, clientPhone: updated.clientPhone },
+        "Failed to send WhatsApp confirmation message",
+      );
+      res.status(502).json({
+        transaction: updated,
+        error: "Transaction confirmée, mais échec de l'envoi du message WhatsApp.",
+      });
       return;
     }
 
