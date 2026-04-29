@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "VNFhDUj2yyrtVT7YE_l6d"
+uri = "file://exports/whatsapp-bot.tar.gz"
+type = "unspecified"
+title = "WhatsApp Bot — full project"
