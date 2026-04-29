@@ -3,6 +3,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { ADMIN_PAGE } from "./pages/admin";
 
 const app: Express = express();
 
@@ -104,6 +105,10 @@ const STATUS_PAGE = `<!doctype html>
 
 app.get("/", (_req: Request, res: Response) => {
   res.type("html").send(STATUS_PAGE);
+});
+
+app.get("/admin", (_req: Request, res: Response) => {
+  res.type("html").send(ADMIN_PAGE);
 });
 
 export default app;
