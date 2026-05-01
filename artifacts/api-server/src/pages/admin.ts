@@ -117,6 +117,7 @@ async function load() {
     const body = rows.map((r) => \`
       <tr data-id="\${r.id}">
         <td class="mono">\${escapeHtml(r.clientPhone)}</td>
+        <td>\${escapeHtml(r.type ?? "—")}</td>
         <td class="amount">\${escapeHtml(r.amount)}</td>
         <td class="mono">\${escapeHtml(r.oneXBetId)}</td>
         <td>\${escapeHtml(r.operator)}</td>
@@ -136,6 +137,7 @@ async function load() {
         <thead>
           <tr>
             <th>Client</th>
+            <th>Type</th>
             <th>Montant</th>
             <th>ID 1xBet</th>
             <th>Opérateur</th>

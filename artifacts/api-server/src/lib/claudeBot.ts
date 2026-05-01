@@ -4,15 +4,59 @@ import {
   db,
   whatsappConversations,
   whatsappMessages,
+  whatsappTransactions,
 } from "@workspace/db";
 import { logger } from "./logger";
+import { sendWhatsAppMessage } from "./twilio";
 
 const MODEL = "claude-sonnet-4-6";
 const MAX_TOKENS = 8192;
 const HISTORY_LIMIT = 30;
 const TWILIO_WHATSAPP_MAX_CHARS = 1500;
 
-const SYSTEM_PROMPT = `Tu t'appelles Awa, assistante de Bonheur Multiservices. Tu aides les clients pour leurs dépôts et retraits 1xBet. Sois chaleureuse et naturelle comme une vraie personne en Afrique de l'Ouest. Utilise des emojis avec modération. Pose UNE seule question à la fois. Ne te présente jamais comme un bot. Quand quelqu'un dit bonjour, réponds chaleureusement et demande directement si c'est pour un dépôt ou un retrait sur 1xBet. Parle toujours en français informel et familier.`;
+const SYSTEM_PROMPT = `Tu t'appelles Awa, assistante de Bonheur Multiservices. Tu aides les clients pour leurs dépôts et retraits 1xBet. Sois chaleureuse et naturelle comme une vraie personne en Afrique de l'Ouest. Utilise des emojis avec modération. Pose UNE seule question à la fois. Ne te présente jamais comme un bot. Quand quelqu'un dit bonjour, réponds chaleureusement et demande directement si c'est pour un dépôt ou un retrait sur 1xBet. Parle toujours en français informel et familier.
+
+Quand tu as collecté TOUTES les informations suivantes, appelle l'outil create_transaction :
+- type : "dépôt" ou "retrait"
+- montant (en FCFA)
+- ID du compte 1xBet
+- opérateur mobile money (ex: Orange, MTN, Moov, Wave)
+- numéro mobile money de l'opérateur
+
+N'appelle l'outil QUE lorsque tu as toutes ces informations confirmées par le client.`;
+
+const CREATE_TRANSACTION_TOOL = {
+  name: "create_transaction",
+  description:
+    "Enregistre une nouvelle demande de dépôt ou retrait 1xBet une fois que toutes les informations ont été collectées auprès du client.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      type: {
+        type: "string",
+        enum: ["dépôt", "retrait"],
+        description: "Type de transaction",
+      },
+      amount: {
+        type: "string",
+        description: "Montant en FCFA (ex: '5000')",
+      },
+      oneXBetId: {
+        type: "string",
+        description: "Identifiant du compte 1xBet du client",
+      },
+      operator: {
+        type: "string",
+        description: "Opérateur mobile money (ex: Orange, MTN, Moov, Wave)",
+      },
+      operatorPhone: {
+        type: "string",
+        description: "Numéro de téléphone mobile money de l'opérateur",
+      },
+    },
+    required: ["type", "amount", "oneXBetId", "operator", "operatorPhone"],
+  },
+} as const;
 
 export interface BotContext {
   phoneNumber: string;
@@ -110,6 +154,64 @@ function isResetCommand(text: string): boolean {
   );
 }
 
+function getAgentPhone(): string | null {
+  return process.env["AGENT_PHONE_NUMBER"] ?? null;
+}
+
+async function notifyAgent(
+  clientPhone: string,
+  type: string,
+  amount: string,
+  oneXBetId: string,
+): Promise<void> {
+  const agentPhone = getAgentPhone();
+  if (!agentPhone) {
+    logger.warn("AGENT_PHONE_NUMBER not set — skipping agent notification");
+    return;
+  }
+  const bare = clientPhone.replace(/^whatsapp:/, "");
+  const message = `🔔 Nouvelle demande de ${bare} - ${type} de ${amount} FCFA sur compte 1xBet ${oneXBetId}`;
+  try {
+    await sendWhatsAppMessage(agentPhone, message);
+  } catch (err) {
+    logger.error({ err, agentPhone }, "Failed to send agent notification");
+  }
+}
+
+interface TransactionInput {
+  type: string;
+  amount: string;
+  oneXBetId: string;
+  operator: string;
+  operatorPhone: string;
+}
+
+async function handleCreateTransaction(
+  clientPhone: string,
+  input: TransactionInput,
+): Promise<string> {
+  const [row] = await db
+    .insert(whatsappTransactions)
+    .values({
+      clientPhone,
+      type: input.type,
+      amount: input.amount,
+      oneXBetId: input.oneXBetId,
+      operator: input.operator,
+      operatorPhone: input.operatorPhone,
+    })
+    .returning({ id: whatsappTransactions.id });
+
+  logger.info(
+    { transactionId: row?.id, clientPhone, type: input.type },
+    "Transaction created",
+  );
+
+  await notifyAgent(clientPhone, input.type, input.amount, input.oneXBetId);
+
+  return JSON.stringify({ success: true, transactionId: row?.id });
+}
+
 export async function handleIncomingMessage(
   ctx: BotContext,
 ): Promise<string> {
@@ -146,9 +248,51 @@ export async function handleIncomingMessage(
       model: MODEL,
       max_tokens: MAX_TOKENS,
       system: SYSTEM_PROMPT,
+      tools: [CREATE_TRANSACTION_TOOL],
       messages,
     });
 
+    // Handle tool use (create_transaction)
+    if (response.stop_reason === "tool_use") {
+      const toolUse = response.content.find((b) => b.type === "tool_use");
+      if (toolUse && toolUse.type === "tool_use" && toolUse.name === "create_transaction") {
+        const input = toolUse.input as TransactionInput;
+        const toolResult = await handleCreateTransaction(ctx.phoneNumber, input);
+
+        // Send tool result back to Claude for the final reply
+        const followUp = await anthropic.messages.create({
+          model: MODEL,
+          max_tokens: MAX_TOKENS,
+          system: SYSTEM_PROMPT,
+          tools: [CREATE_TRANSACTION_TOOL],
+          messages: [
+            ...messages,
+            { role: "assistant" as const, content: response.content },
+            {
+              role: "user" as const,
+              content: [
+                {
+                  type: "tool_result" as const,
+                  tool_use_id: toolUse.id,
+                  content: toolResult,
+                },
+              ],
+            },
+          ],
+        });
+
+        const textBlock = followUp.content.find((b) => b.type === "text");
+        const assistantText =
+          textBlock && textBlock.type === "text"
+            ? textBlock.text.trim()
+            : "Ta demande a bien été enregistrée ! On la traite rapidement. 🙏";
+
+        await saveMessage(conversationId, "assistant", assistantText);
+        return truncateForWhatsApp(assistantText);
+      }
+    }
+
+    // Normal text response
     const textBlock = response.content.find((b) => b.type === "text");
     const assistantText =
       textBlock && textBlock.type === "text"
@@ -156,7 +300,6 @@ export async function handleIncomingMessage(
         : "Désolé, je n'ai pas pu générer de réponse. Peux-tu reformuler ?";
 
     await saveMessage(conversationId, "assistant", assistantText);
-
     return truncateForWhatsApp(assistantText);
   } catch (err) {
     logger.error({ err, phoneNumber: ctx.phoneNumber }, "Claude API error");
@@ -210,8 +353,6 @@ export async function resetConversation(phoneNumber: string): Promise<boolean> {
 
   await db
     .delete(whatsappMessages)
-    .where(
-      and(eq(whatsappMessages.conversationId, conv[0].id)),
-    );
+    .where(and(eq(whatsappMessages.conversationId, conv[0].id)));
   return true;
 }
