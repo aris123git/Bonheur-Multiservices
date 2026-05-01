@@ -11,6 +11,8 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 import { ADMIN_PAGE } from "./pages/admin";
 import { buildLoginPage } from "./pages/adminLogin";
+import { buildChangePasswordPage } from "./pages/changePassword";
+import { checkAdminPassword, changeAdminPassword } from "./lib/adminAuth";
 
 const COOKIE_NAME = "admin_auth";
 
@@ -18,12 +20,6 @@ function getSessionSecret(): string {
   const s = process.env["SESSION_SECRET"];
   if (!s) throw new Error("SESSION_SECRET must be set");
   return s;
-}
-
-function getAdminPassword(): string {
-  const p = process.env["ADMIN_PASSWORD"];
-  if (!p) throw new Error("ADMIN_PASSWORD must be set");
-  return p;
 }
 
 function isAuthenticated(req: Request): boolean {
@@ -75,9 +71,9 @@ app.get("/admin/login", (_req: Request, res: Response) => {
   res.type("html").send(buildLoginPage());
 });
 
-app.post("/admin/login", (req: Request, res: Response) => {
+app.post("/admin/login", async (req: Request, res: Response) => {
   const { password } = req.body as { password?: string };
-  if (password && password === getAdminPassword()) {
+  if (password && (await checkAdminPassword(password))) {
     res.cookie(COOKIE_NAME, "ok", {
       signed: true,
       httpOnly: true,
@@ -93,6 +89,36 @@ app.post("/admin/login", (req: Request, res: Response) => {
 app.get("/admin/logout", (_req: Request, res: Response) => {
   res.clearCookie(COOKIE_NAME);
   res.redirect("/admin/login");
+});
+
+/* ── Change password (requires login) ── */
+app.get("/admin/change-password", requireAuth, (_req: Request, res: Response) => {
+  res.type("html").send(buildChangePasswordPage());
+});
+
+app.post("/admin/change-password", requireAuth, async (req: Request, res: Response) => {
+  const { current, newpw, confirm } = req.body as {
+    current?: string;
+    newpw?: string;
+    confirm?: string;
+  };
+
+  if (!current || !newpw || !confirm) {
+    res.type("html").send(buildChangePasswordPage({ error: "Tous les champs sont requis." }));
+    return;
+  }
+  if (newpw !== confirm) {
+    res.type("html").send(buildChangePasswordPage({ error: "Les nouveaux mots de passe ne correspondent pas." }));
+    return;
+  }
+
+  const result = await changeAdminPassword(current, newpw);
+  if (!result.ok) {
+    res.status(401).type("html").send(buildChangePasswordPage({ error: result.error }));
+    return;
+  }
+
+  res.type("html").send(buildChangePasswordPage({ success: true }));
 });
 
 /* ── Protected admin dashboard ── */

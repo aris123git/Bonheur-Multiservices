@@ -75,6 +75,7 @@ export const ADMIN_PAGE = `<!doctype html>
       <div class="toolbar">
         <span class="meta" id="meta">—</span>
         <button class="refresh" id="refresh">Rafraîchir</button>
+        <a class="logout" href="/admin/change-password">Mot de passe</a>
         <a class="logout" href="/admin/logout">Déconnexion</a>
       </div>
     </header>
