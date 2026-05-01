@@ -1,9 +1,50 @@
-import express, { type Express, type Request, type Response } from "express";
+import express, {
+  type Express,
+  type Request,
+  type Response,
+  type NextFunction,
+} from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { ADMIN_PAGE } from "./pages/admin";
+import { buildLoginPage } from "./pages/adminLogin";
+
+const COOKIE_NAME = "admin_auth";
+
+function getSessionSecret(): string {
+  const s = process.env["SESSION_SECRET"];
+  if (!s) throw new Error("SESSION_SECRET must be set");
+  return s;
+}
+
+function getAdminPassword(): string {
+  const p = process.env["ADMIN_PASSWORD"];
+  if (!p) throw new Error("ADMIN_PASSWORD must be set");
+  return p;
+}
+
+function isAuthenticated(req: Request): boolean {
+  return req.signedCookies?.[COOKIE_NAME] === "ok";
+}
+
+function requireAuth(req: Request, res: Response, next: NextFunction): void {
+  if (isAuthenticated(req)) {
+    next();
+    return;
+  }
+  res.redirect("/admin/login");
+}
+
+function requireAuthApi(req: Request, res: Response, next: NextFunction): void {
+  if (isAuthenticated(req)) {
+    next();
+    return;
+  }
+  res.status(401).json({ error: "Non authentifié" });
+}
 
 const app: Express = express();
 
@@ -19,19 +60,53 @@ app.use(
         };
       },
       res(res) {
-        return {
-          statusCode: res.statusCode,
-        };
+        return { statusCode: res.statusCode };
       },
     },
   }),
 );
 app.use(cors());
+app.use(cookieParser(getSessionSecret()));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+/* ── Auth routes ── */
+app.get("/admin/login", (_req: Request, res: Response) => {
+  res.type("html").send(buildLoginPage());
+});
+
+app.post("/admin/login", (req: Request, res: Response) => {
+  const { password } = req.body as { password?: string };
+  if (password && password === getAdminPassword()) {
+    res.cookie(COOKIE_NAME, "ok", {
+      signed: true,
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 8 * 60 * 60 * 1000, // 8 h
+    });
+    res.redirect("/admin");
+    return;
+  }
+  res.status(401).type("html").send(buildLoginPage("Mot de passe incorrect."));
+});
+
+app.get("/admin/logout", (_req: Request, res: Response) => {
+  res.clearCookie(COOKIE_NAME);
+  res.redirect("/admin/login");
+});
+
+/* ── Protected admin dashboard ── */
+app.get("/admin", requireAuth, (_req: Request, res: Response) => {
+  res.type("html").send(ADMIN_PAGE);
+});
+
+/* ── Protected API routes ── */
+app.use("/api/admin", requireAuthApi, router);
+
+/* ── Public API routes ── */
 app.use("/api", router);
 
+/* ── Status page ── */
 const STATUS_PAGE = `<!doctype html>
 <html lang="fr">
 <head>
@@ -105,10 +180,6 @@ const STATUS_PAGE = `<!doctype html>
 
 app.get("/", (_req: Request, res: Response) => {
   res.type("html").send(STATUS_PAGE);
-});
-
-app.get("/admin", (_req: Request, res: Response) => {
-  res.type("html").send(ADMIN_PAGE);
 });
 
 export default app;

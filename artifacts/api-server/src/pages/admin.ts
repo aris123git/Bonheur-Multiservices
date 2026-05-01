@@ -57,6 +57,12 @@ export const ADMIN_PAGE = `<!doctype html>
     padding: 6px 12px; border-radius: 8px; font-size: 13px; cursor: pointer;
   }
   .refresh:hover { background: #f8fafc; }
+  .logout {
+    background: #fff; color: #b91c1c; border: 1px solid #fecaca;
+    padding: 6px 12px; border-radius: 8px; font-size: 13px; cursor: pointer;
+    text-decoration: none; display: inline-block;
+  }
+  .logout:hover { background: #fef2f2; }
 </style>
 </head>
 <body>
@@ -69,6 +75,7 @@ export const ADMIN_PAGE = `<!doctype html>
       <div class="toolbar">
         <span class="meta" id="meta">—</span>
         <button class="refresh" id="refresh">Rafraîchir</button>
+        <a class="logout" href="/admin/logout">Déconnexion</a>
       </div>
     </header>
     <div class="card">
