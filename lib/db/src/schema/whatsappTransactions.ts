@@ -3,6 +3,7 @@ import { pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
 export const whatsappTransactions = pgTable("whatsapp_transactions", {
   id: serial("id").primaryKey(),
   clientPhone: text("client_phone").notNull(),
+  type: text("type").notNull().default("dépôt"),
   amount: text("amount").notNull(),
   oneXBetId: text("one_x_bet_id").notNull(),
   operator: text("operator").notNull(),
