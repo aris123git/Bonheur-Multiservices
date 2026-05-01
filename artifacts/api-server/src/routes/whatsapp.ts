@@ -10,6 +10,10 @@ import {
   handleIncomingMessage,
   resetConversation,
 } from "../lib/claudeBot";
+import {
+  isAudioContentType,
+  transcribeTwilioVoiceMessage,
+} from "../lib/transcription";
 
 const router: IRouter = Router();
 
@@ -45,18 +49,44 @@ router.post("/whatsapp/webhook", async (req, res) => {
     ? String(params["ProfileName"])
     : undefined;
   const numMedia = Number(params["NumMedia"] ?? 0);
+  const mediaContentType = params["MediaContentType0"] ?? "";
+  const mediaUrl = params["MediaUrl0"] ?? "";
 
   req.log.info(
-    { from, hasBody: body.length > 0, numMedia },
+    { from, hasBody: body.length > 0, numMedia, mediaContentType },
     "Incoming WhatsApp message",
   );
+
+  // Detect voice message and transcribe it
+  let effectiveBody = body;
+  let isVoiceMessage = false;
+
+  if (numMedia > 0 && mediaUrl && isAudioContentType(mediaContentType)) {
+    isVoiceMessage = true;
+    req.log.info({ mediaUrl, mediaContentType }, "Voice message detected, transcribing…");
+
+    const transcript = await transcribeTwilioVoiceMessage(mediaUrl);
+
+    if (transcript) {
+      effectiveBody = transcript;
+      req.log.info({ transcript }, "Transcription complete, processing as text");
+    } else {
+      // Transcription failed — inform user gracefully
+      const twiml = new twilio.twiml.MessagingResponse();
+      twiml.message(
+        "Désolé, je n'ai pas pu comprendre ton message vocal. Peux-tu m'écrire directement ? 🙏",
+      );
+      res.type("text/xml").send(twiml.toString());
+      return;
+    }
+  }
 
   try {
     const replyText = await handleIncomingMessage({
       phoneNumber: from,
       profileName,
-      body,
-      numMedia,
+      body: effectiveBody,
+      numMedia: isVoiceMessage ? 0 : numMedia, // treat as text after transcription
     });
 
     const twiml = new twilio.twiml.MessagingResponse();

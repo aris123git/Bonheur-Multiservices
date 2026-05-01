@@ -37,6 +37,14 @@ export function getTwilioAuthToken(): string {
   return token;
 }
 
+export function getTwilioAccountSid(): string {
+  const sid = process.env["TWILIO_ACCOUNT_SID"];
+  if (!sid) {
+    throw new Error("TWILIO_ACCOUNT_SID must be set in the environment.");
+  }
+  return sid;
+}
+
 export async function sendWhatsAppMessage(
   toPhone: string,
   body: string,
