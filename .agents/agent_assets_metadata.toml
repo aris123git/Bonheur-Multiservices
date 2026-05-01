@@ -6,3 +6,9 @@ id = "VNFhDUj2yyrtVT7YE_l6d"
 uri = "file://exports/whatsapp-bot.tar.gz"
 type = "unspecified"
 title = "WhatsApp Bot — full project"
+
+[[outputs]]
+id = "QJevcBeSXXej5aXYFSrZH"
+uri = "file://README.md"
+type = "text"
+title = "README.md — Bonheur Multiservices Bot WhatsApp"
