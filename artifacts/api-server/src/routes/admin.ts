@@ -13,11 +13,16 @@ router.get("/admin/transactions", async (req: Request, res: Response) => {
     ? req.query["status"]
     : "pending";
 
-  const rows = await db
-    .select()
-    .from(whatsappTransactions)
-    .where(eq(whatsappTransactions.status, status))
-    .orderBy(desc(whatsappTransactions.createdAt));
+  const rows = status === "all"
+    ? await db
+        .select()
+        .from(whatsappTransactions)
+        .orderBy(desc(whatsappTransactions.createdAt))
+    : await db
+        .select()
+        .from(whatsappTransactions)
+        .where(eq(whatsappTransactions.status, status))
+        .orderBy(desc(whatsappTransactions.createdAt));
 
   res.json({ transactions: rows });
 });
